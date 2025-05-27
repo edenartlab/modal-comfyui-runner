@@ -1,22 +1,34 @@
 import json
 import subprocess
 from pathlib import Path
-import os
-import os
+import os, shutil, tempfile, re
+import httpx
+import pathlib
+from tqdm import tqdm
 
-def print_directory_structure(root_dir='.', n_levels=4):
+import yaml
+import copy
+from typing import Dict, Any, Union, List
+import json
+
+def print_directory_structure(root_dir='.', n_levels=3, print_hidden_files=False):
     """
     Print directory structure starting from root_dir up to n_levels deep.
     
     Args:
         root_dir (str): Starting directory path (defaults to current directory '.')
-        n_levels (int): Maximum depth to traverse (defaults to 4)
+        n_levels (int): Maximum depth to traverse (defaults to 2)
+        print_hidden_files (bool): Whether to show hidden files and directories (defaults to False)
     """
     print(f"Directory structure for '{os.path.abspath(root_dir)}':")
     
     for root, dirs, files in os.walk(root_dir):
         # Calculate current level relative to root_dir
         level = root.replace(os.path.abspath(root_dir), "").count(os.sep)
+        
+        # Filter out hidden directories if print_hidden_files is False
+        if not print_hidden_files:
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
         
         if level < n_levels:
             indent = " " * 4 * level
@@ -25,110 +37,14 @@ def print_directory_structure(root_dir='.', n_levels=4):
             # Print files in current directory
             subindent = " " * 4 * (level + 1)
             for f in files:
+                # Skip hidden files if print_hidden_files is False
+                if not print_hidden_files and f.startswith('.'):
+                    continue
                 print(f"{subindent}{f}")
         
         # Prevent recursing deeper than n_levels
         if level >= n_levels - 1:
             dirs.clear()
-
-# Helper functions for workspace support
-def download_files_from_workspace():
-    """Download files specified in downloads.json for the current workspace."""
-    downloads_file = "/root/workspace/downloads.json"
-    
-    print(f"Downloading files from {downloads_file}")
-
-    with open(downloads_file, 'r') as f:
-        downloads = json.load(f)
-    
-    for path_key, source_identifier in downloads.items():
-        comfy_path = Path("/root") / path_key
-        vol_path = Path("/data") / path_key
-        
-        # Skip if file already exists in volume OR if symlink already exists
-        if vol_path.exists() or comfy_path.exists():
-            if vol_path.exists() and not comfy_path.exists():
-                # File exists in volume but symlink is missing - create symlink
-                print(f"File exists in volume at {vol_path}, creating missing symlink at {comfy_path}")
-                try:
-                    comfy_path.parent.mkdir(parents=True, exist_ok=True)
-                    is_directory = vol_path.is_dir()
-                    comfy_path.symlink_to(vol_path, target_is_directory=is_directory)
-                except Exception as e:
-                    print(f"Error creating symlink: {e}")
-            else:
-                print(f"Skipping {comfy_path}, already exists")
-            continue
-            
-        try:
-            is_git_clone = source_identifier.startswith("git clone ")
-            actual_source_url = source_identifier[10:].strip() if is_git_clone else source_identifier
-            
-            if is_git_clone:
-                print(f"Cloning {actual_source_url} to {vol_path}")
-                vol_path.parent.mkdir(parents=True, exist_ok=True)
-                subprocess.run(["git", "clone", actual_source_url, str(vol_path)], check=True)
-                # Create symlink
-                comfy_path.parent.mkdir(parents=True, exist_ok=True)
-                comfy_path.symlink_to(vol_path, target_is_directory=True)
-            else:
-                print(f"Downloading {actual_source_url} to {vol_path}")
-                vol_path.parent.mkdir(parents=True, exist_ok=True)
-                subprocess.run(["wget", "-O", str(vol_path), actual_source_url], check=True)
-                # Create symlink
-                comfy_path.parent.mkdir(parents=True, exist_ok=True)
-                comfy_path.symlink_to(vol_path)
-                
-        except Exception as e:
-            print(f"Error processing {path_key}: {e}")
-            raise
-            
-    return
-
-
-def install_custom_nodes_from_snapshot(use_comfy_cli=False):
-    """Install custom nodes specified in snapshot.json for the current workspace."""
-    snapshot_file = "/root/workspace/snapshot.json"
-    comfy_root_dir = os.environ.get("COMFYUI_PATH")
-
-    os.chdir("/root")
-    with open(snapshot_file, 'r') as f:
-        snapshot = json.load(f)
-    
-    if use_comfy_cli:
-        # Install git custom nodes using comfy-cli
-        git_custom_nodes = snapshot.get("git_custom_nodes", {})
-        for repo_url, node_info in git_custom_nodes.items():
-            if node_info.get("disabled", False):
-                print(f"Skipping disabled node: {repo_url}")
-                continue
-                
-            # Extract repo name from URL
-            repo_name = repo_url.split("/")[-1].replace(".git", "")
-            print(f"Installing custom node: {repo_name} from {repo_url}")
-            
-            try:
-                subprocess.run([
-                    "comfy", "node", "install", "--fast-deps", f"{repo_name}@latest"
-                ], check=True, cwd="/root")
-            except subprocess.CalledProcessError as e:
-                print(f"Failed to install {repo_name}: {e}")
-                continue
-
-    else:
-        """Install custom nodes from snapshot.json with git commit hashes."""
-        custom_nodes = snapshot["git_custom_nodes"]
-        for url, node in custom_nodes.items():
-            print(f"Installing custom node {url} with hash {node['hash']}")
-            install_custom_node_with_retries(comfy_root_dir, url, node["hash"])
-        
-        post_install_commands = snapshot.get("post_install_commands", [])
-        for cmd in post_install_commands:
-            os.system(cmd)
-
-        set_debug_mode_to_false(comfy_root_dir)
-
-    return
 
 
 def install_custom_node_with_retries(comfy_root_dir, url, commit_hash, max_retries=3):
@@ -160,6 +76,174 @@ def install_custom_node_with_retries(comfy_root_dir, url, commit_hash, max_retri
             if attempt == max_retries - 1:
                 print(f"Failed to install {repo_name} after {max_retries} attempts")
                 raise
+
+def pprint(obj):
+    print(json.dumps(obj, indent=4))
+
+def _url_to_filename(url):
+    filename = url.split("/")[-1]
+    filename = re.sub(r"\?.*$", "", filename)
+    max_length = 255
+    if len(filename) > max_length:  # ensure filename is not too long
+        name, ext = os.path.splitext(filename)
+        filename = name[: max_length - len(ext)] + ext
+    return filename
+
+def download_file(url, local_filepath, overwrite=False):
+    """
+    Download a file from a URL to a local filepath.
+
+    Args:
+        url: URL to download from
+        local_filepath: Local path to save the file to
+        overwrite: Whether to overwrite existing files
+
+    Returns:
+        str: Path to the downloaded file
+    """
+    local_filepath = pathlib.Path(local_filepath)
+    local_filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    if local_filepath.exists() and not overwrite:
+        print(f"File {local_filepath} already exists. Skipping download.")
+        return str(local_filepath)
+    else:
+        print(f"Downloading file from {url} to {local_filepath}")
+
+    # For CloudFront or standard HTTP requests:
+    with httpx.stream("GET", url, follow_redirects=True) as response:
+        if response.status_code == 404:
+            raise FileNotFoundError(f"No file found at {url}")
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to download from {url}. Status code: {response.status_code}"
+            )
+
+        # Get content length if available
+        total = int(response.headers.get("Content-Length", "0"))
+
+        if total == 0:
+            # If Content-Length not provided, read all at once
+            content = response.read()
+            with open(local_filepath, "wb") as f:
+                f.write(content)
+        else:
+            # Stream with progress bar if Content-Length available
+            with (
+                open(local_filepath, "wb") as f,
+                tqdm(
+                    total=total, unit_scale=True, unit_divisor=1024, unit="B"
+                ) as progress,
+            ):
+                num_bytes_downloaded = response.num_bytes_downloaded
+                for data in response.iter_bytes():
+                    f.write(data)
+                    progress.update(
+                        response.num_bytes_downloaded - num_bytes_downloaded
+                    )
+                    num_bytes_downloaded = response.num_bytes_downloaded
+
+    return str(local_filepath)
+
+def inject_args_into_workflow(workflow, args):
+
+    print("===== Injecting comfyui args into workflow =====")
+    pprint(args)
+
+    # TODO: make this dynamic
+    api_yaml_path = "/root/workspace/workflows/texture_flow/api.yaml"
+
+    # Download images:
+    local_filepaths = []
+    for url in args["images"]:
+        local_filepath = download_file(url, f"/root/input/{_url_to_filename(url)}")
+        local_filepaths.append(local_filepath)
+
+    # TODO make this dynamic    
+    args["images"] = local_filepaths
+
+    # Load the api.yaml configuration
+    with open(api_yaml_path, 'r') as f:
+        api_config = yaml.safe_load(f)
+    
+    # Create a deep copy of the workflow to avoid modifying the original
+    updated_workflow = copy.deepcopy(workflow)
+    
+    # Get the parameters section from api.yaml
+    parameters = api_config.get('parameters', {})
+    
+    # Process each parameter from test.json
+    for param_name, param_value in args.items():
+        if param_name not in parameters:
+            print(f"Warning: Parameter '{param_name}' not found in api.yaml parameters")
+            continue
+            
+        param_config = parameters[param_name]
+        comfyui_config = param_config.get('comfyui', {})
+        
+        if not comfyui_config:
+            print(f"Warning: No comfyui configuration found for parameter '{param_name}'")
+            continue
+            
+        # Extract mapping information
+        node_id = comfyui_config.get('node_id')
+        field = comfyui_config.get('field', 'inputs')
+        subfield = comfyui_config.get('subfield')
+        preprocessing = comfyui_config.get('preprocessing')
+        remap_configs = comfyui_config.get('remap', [])
+        
+        if node_id is None or subfield is None:
+            print(f"Warning: Missing node_id or subfield for parameter '{param_name}'")
+            continue
+            
+        # Convert node_id to string (ComfyUI workflows use string keys)
+        node_id_str = str(node_id)
+        
+        # Ensure the node exists in the workflow
+        if node_id_str not in updated_workflow:
+            print(f"Warning: Node {node_id_str} not found in workflow for parameter '{param_name}'")
+            continue
+            
+        # Ensure the field exists in the node
+        if field not in updated_workflow[node_id_str]:
+            updated_workflow[node_id_str][field] = {}
+            
+        # Handle preprocessing (e.g., for image arrays that need folder structure)
+        processed_value = param_value
+        if preprocessing == 'folder' and isinstance(param_value, list):
+            # For image arrays, ComfyUI might expect a specific folder structure
+            # This is a placeholder - you might need to adjust based on your specific needs
+            processed_value = param_value
+            
+        # Set the main parameter value
+        updated_workflow[node_id_str][field][subfield] = processed_value
+        
+        # Handle remap configurations
+        for remap_config in remap_configs:
+            remap_node_id = str(remap_config.get('node_id'))
+            remap_field = remap_config.get('field', 'inputs')
+            remap_subfield = remap_config.get('subfield')
+            remap_map = remap_config.get('map', {})
+            
+            if remap_node_id and remap_subfield and param_value in remap_map:
+                # Ensure the remap node exists
+                if remap_node_id not in updated_workflow:
+                    print(f"Warning: Remap node {remap_node_id} not found in workflow")
+                    continue
+                    
+                # Ensure the remap field exists
+                if remap_field not in updated_workflow[remap_node_id]:
+                    updated_workflow[remap_node_id][remap_field] = {}
+                    
+                # Set the remapped value
+                mapped_value = remap_map[param_value]
+                updated_workflow[remap_node_id][remap_field][remap_subfield] = mapped_value
+                
+        print(f"Mapped '{param_name}' = {param_value} to node {node_id_str}.{field}.{subfield}")
+
+    return updated_workflow
+
+
 
 # TODO: deprecate this ugly hack to avoid verbose logging
 def set_debug_mode_to_false(comfy_root_dir):

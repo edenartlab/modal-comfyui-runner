@@ -1,16 +1,5 @@
 # 1. Deploy ComfyUI behind a web endpoint:
-
-# ```bash
 # WORKSPACE=slow_new modal deploy comfyapp.py
-# ```
-
-# 2. In another terminal, run inference:
-
-# ```bash
-# python comfyclient.py --modal-workspace $(modal profile current) --prompt "Surreal dreamscape with floating islands, upside-down waterfalls, and impossible geometric structures, all bathed in a soft, ethereal light"
-# ```
-
-# We use [comfy-cli](https://github.com/Comfy-Org/comfy-cli) to install ComfyUI and its dependencies.
 
 import json
 import subprocess
@@ -40,6 +29,107 @@ print("========================================")
 
 vol = modal.Volume.from_name(f"newcomfy-data-volume", create_if_missing=True)
 
+
+def download_files_from_workspace():
+    """Download files specified in downloads.json for the current workspace."""
+    downloads_file = "/root/workspace/downloads.json"
+    comfy_root_dir = os.environ.get("COMFYUI_PATH", "/root/comfy/ComfyUI")
+    
+    print(f"Downloading files from {downloads_file}")
+
+    with open(downloads_file, 'r') as f:
+        downloads = json.load(f)
+    
+    for path_key, source_identifier in downloads.items():
+        comfy_path = Path(comfy_root_dir) / path_key
+        vol_path = Path("/data") / path_key
+        
+        # Skip if file already exists in volume OR if symlink already exists
+        if vol_path.exists() or comfy_path.exists():
+            if vol_path.exists() and not comfy_path.exists():
+                # File exists in volume but symlink is missing - create symlink
+                print(f"File exists in volume at {vol_path}, creating missing symlink at {comfy_path}")
+                try:
+                    comfy_path.parent.mkdir(parents=True, exist_ok=True)
+                    is_directory = vol_path.is_dir()
+                    comfy_path.symlink_to(vol_path, target_is_directory=is_directory)
+                except Exception as e:
+                    print(f"Error creating symlink: {e}")
+            else:
+                print(f"Skipping {comfy_path}, already exists")
+            continue
+            
+        try:
+            is_git_clone = source_identifier.startswith("git clone ")
+            actual_source_url = source_identifier[10:].strip() if is_git_clone else source_identifier
+            
+            if is_git_clone:
+                print(f"Cloning {actual_source_url} to {vol_path}")
+                vol_path.parent.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["git", "clone", actual_source_url, str(vol_path)], check=True)
+                # Create symlink
+                comfy_path.parent.mkdir(parents=True, exist_ok=True)
+                comfy_path.symlink_to(vol_path, target_is_directory=True)
+            else:
+                print(f"Downloading {actual_source_url} to {vol_path}")
+                vol_path.parent.mkdir(parents=True, exist_ok=True)
+                subprocess.run(["wget", "-O", str(vol_path), actual_source_url], check=True)
+                # Create symlink
+                comfy_path.parent.mkdir(parents=True, exist_ok=True)
+                comfy_path.symlink_to(vol_path)
+                
+        except Exception as e:
+            print(f"Error processing {path_key}: {e}")
+            raise
+    
+    vol.commit()
+    return
+
+def install_custom_nodes_from_snapshot(use_comfy_cli=False):
+    """Install custom nodes specified in snapshot.json for the current workspace."""
+    snapshot_file = "/root/workspace/snapshot.json"
+    comfy_root_dir = os.environ.get("COMFYUI_PATH")
+
+    os.chdir("/root")
+    with open(snapshot_file, 'r') as f:
+        snapshot = json.load(f)
+    
+    if use_comfy_cli:
+        # Install git custom nodes using comfy-cli
+        git_custom_nodes = snapshot.get("git_custom_nodes", {})
+        for repo_url, node_info in git_custom_nodes.items():
+            if node_info.get("disabled", False):
+                print(f"Skipping disabled node: {repo_url}")
+                continue
+                
+            # Extract repo name from URL
+            repo_name = repo_url.split("/")[-1].replace(".git", "")
+            print(f"Installing custom node: {repo_name} from {repo_url}")
+            
+            try:
+                subprocess.run([
+                    "comfy", "node", "install", "--fast-deps", f"{repo_name}@latest"
+                ], check=True, cwd="/root")
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to install {repo_name}: {e}")
+                continue
+
+    else:
+        """Install custom nodes from snapshot.json with git commit hashes."""
+        custom_nodes = snapshot["git_custom_nodes"]
+        for url, node in custom_nodes.items():
+            print(f"Installing custom node {url} with hash {node['hash']}")
+            install_custom_node_with_retries(comfy_root_dir, url, node["hash"])
+        
+        post_install_commands = snapshot.get("post_install_commands", [])
+        for cmd in post_install_commands:
+            os.system(cmd)
+
+        set_debug_mode_to_false(comfy_root_dir)
+        
+    vol.commit()
+    return
+
 image = (  # build up a Modal Image
     modal.Image.debian_slim(python_version="3.11")
     .env({"COMFYUI_PATH": cfg.root_comfy_dir})
@@ -47,10 +137,11 @@ image = (  # build up a Modal Image
     .env({"WORKFLOWS": workflows})
 
     .apt_install("git", "wget")
+    .pip_install("httpx", "tqdm")
     .pip_install("fastapi[standard]==0.115.4")  # install web dependencies
     .pip_install("comfy-cli==1.3.9")  # install comfy-cli
     .run_commands(  # use comfy-cli to install ComfyUI and its dependencies
-        "comfy --skip-prompt install --fast-deps --nvidia --version 0.3.10"
+        "comfy --workspace=/root/ComfyUI --skip-prompt install --fast-deps --nvidia --version 0.3.10"
     )
     # Copy local files:
     .add_local_dir(
@@ -63,11 +154,15 @@ image = (  # build up a Modal Image
         remote_path="/root/workspace",
         copy=True,
     )
+    # Add all .py files in the current directory to the image
+    .add_local_dir(
+        local_path=Path(__file__).parent,
+        remote_path="/root/",
+        copy=True,
+        ignore=["memory_snapshot_helper"],
+    )
     .run_function(
         download_files_from_workspace,
-        volumes={"/data": vol}
-    )
-    .run_function(print_directory_structure,
         volumes={"/data": vol}
     )
     .run_function(
@@ -78,6 +173,7 @@ image = (  # build up a Modal Image
         volumes={"/data": vol}
     )
 )
+
 
 app_name = f"newcomfy-{workspace_name}-{db.lower()}"
 app = modal.App(name=app_name, image=image)
@@ -145,73 +241,41 @@ class ComfyUI:
             print("Successfully set CUDA device")
 
     @modal.method()
-    def infer(self, workflow_path, workflow_name: str = None, comfyui_timeout: int = cfg.comfyui_timeout):
+    def infer(self, workflow_path):
         # sometimes the ComfyUI server stops responding (we think because of memory leaks), so this makes sure it's still up
         self.poll_server_health()
 
         # runs the comfy run --workflow command as a subprocess
-        cmd = f"comfy run --workflow {workflow_path} --wait --timeout {comfyui_timeout} --verbose"
+        cmd = f"comfy run --workflow {workflow_path} --wait --timeout {cfg.comfyui_timeout} --verbose"
         subprocess.run(cmd, shell=True, check=True)
 
         # completed workflows write output images to this directory
         output_dir = f"{cfg.root_comfy_dir}/output"
 
-        # looks up the name of the output image file based on the workflow
-        workflow = json.loads(Path(workflow_path).read_text())
-        file_prefix = [
-            node.get("inputs")
-            for node in workflow.values()
-            if node.get("class_type") == "SaveImage"
-        ][0]["filename_prefix"]
-
-        # returns the image as bytes
+        # returns the output files as bytes
         for f in Path(output_dir).iterdir():
-            if f.name.startswith(file_prefix):
-                return f.read_bytes()
-        
-        # If no matching file found, return None or raise an error
-        raise FileNotFoundError(f"No output file found with prefix: {file_prefix}")
+            return f.read_bytes()
 
     @modal.fastapi_endpoint(method="POST")
-    def api(self, item: Dict):
+    def api(self, data: Dict):
         from fastapi import Response
 
         # Support workflow selection through request
-        workflow_name = item.get("workflow", "workflow_api")
+        workflow_name = data.get("workflow")
         
-        # Try workspace-specific workflow first, fall back to default
-        workspace_workflow_path = f"/root/workspace/workflows/{workflow_name}/workflow_api.json"
-        default_workflow_path = "/root/workflow_api.json"
-        
-        if Path(workspace_workflow_path).exists():
-            workflow_path = workspace_workflow_path
-        else:
-            workflow_path = default_workflow_path
-            
+        workflow_path = f"/root/workspace/workflows/{workflow_name}/workflow_api.json"
         workflow_data = json.loads(Path(workflow_path).read_text())
-
-        # insert the prompt (assuming node 6 exists, otherwise skip)
-        if "6" in workflow_data and "inputs" in workflow_data["6"]:
-            workflow_data["6"]["inputs"]["text"] = item.get("prompt", "")
-
-        # give the output image a unique id per client request
-        client_id = uuid.uuid4().hex
-        
-        # Find SaveImage node and update filename_prefix
-        for node_id, node in workflow_data.items():
-            if node.get("class_type") == "SaveImage":
-                if "inputs" in node:
-                    node["inputs"]["filename_prefix"] = client_id
-                break
-
+        workflow_data = inject_args_into_workflow(workflow_data, data.get("args"))
         # save this updated workflow to a new file
-        new_workflow_file = f"{client_id}.json"
+        new_workflow_file = f"{uuid.uuid4().hex}.json"
         json.dump(workflow_data, Path(new_workflow_file).open("w"))
+        
+        print(f"Running workflow: {workflow_name} with args: {data.get('args')}")
 
         # run inference on the currently running container
-        img_bytes = self.infer.local(new_workflow_file, workflow_name)
+        list_of_img_bytes = self.infer.local(new_workflow_file)
 
-        return Response(img_bytes, media_type="image/jpeg")
+        return Response(list_of_img_bytes, media_type="video/mp4")
 
     def poll_server_health(self) -> Dict:
         import socket

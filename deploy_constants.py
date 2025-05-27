@@ -20,6 +20,6 @@ scaledown_window = 60 # seconds (how long to keep a container alive after it's l
 startup_timeout  = 60 # seconds (how long to wait for the server to start)
 
 # ComfyUI settings:
-root_comfy_dir  = "/root/comfy/ComfyUI"
+root_comfy_dir  = "/root/ComfyUI"
 comfyui_timeout = 5000 # seconds (how long to wait for ComfyUI to complete a workflow before timing out)
 
