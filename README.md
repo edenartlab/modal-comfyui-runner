@@ -21,20 +21,6 @@ This project deploys ComfyUI workflows as scalable web APIs using Modal's server
 - **`deploy_constants.py`**: GPU, timeout, and resource configuration
 - **`mcp/`**: MCP server implementation for AI assistant integration
 
-### Workspace Structure
-
-```
-workspaces/{workspace_name}/
-├── config.ini                    # Workspace configuration
-├── downloads.json                # Model/asset download URLs
-├── snapshot.json                 # Custom nodes and commits
-└── workflows/{workflow_name}/
-    ├── workflow.json             # ComfyUI workflow definition
-    ├── workflow_api.json         # API-ready workflow version
-    ├── api.yaml                  # Parameter mapping config
-    └── test.json                 # Test parameters
-```
-
 ## Quick Start
 
 ### 1. Deploy a Workspace
@@ -55,7 +41,7 @@ python comfyclient.py \
   --test-json workspaces/slow_new/workflows/txt2img/test.json
 ```
 
-### 3. Development Mode
+### 3. Interactive Mode
 
 ```bash
 # Serve ComfyUI as interactive endpoint accessible through browser:
