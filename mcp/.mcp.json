@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "comfyui-server": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "/Users/xandersteenbrugge/Documents/GitHub/Eden/modal-comfyui-runner/mcp/mcp_server.py"
+      ],
+      "env": {}
+    }
+  }
+}

@@ -14,7 +14,7 @@ n_cpus           = 4.0
 min_containers   = 0
 max_containers   = 1
 max_inputs       = 3 # Max number of inputs to process concurrently (before scaling up)
-scaledown_window = 60 # seconds (how long to keep a container alive after it's last input)
+scaledown_window = 180 # seconds (how long to keep a container alive after it's last input)
 
 # Interactive server settings:
 startup_timeout  = 60 # seconds (how long to wait for the server to start)
