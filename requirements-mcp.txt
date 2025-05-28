@@ -1,0 +1,6 @@
+# MCP (Model Context Protocol) dependencies
+mcp[cli]>=1.0.0
+
+# Optional: for testing and development
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
