@@ -39,7 +39,7 @@ def main(args: argparse.Namespace):
             assert response.status == 200, response.status
             elapsed = round(time.time() - start_time, 1)
             print(f"Image finished generating in {elapsed} seconds!")
-            filename = OUTPUT_DIR / f"{args.workflow}_{int(time.time())}.mp4"
+            filename = OUTPUT_DIR / f"{args.workflow}_{int(time.time())}.png"
             filename.write_bytes(response.read())
             print(f"Saved to '{filename}'")
     except urllib.error.HTTPError as e:

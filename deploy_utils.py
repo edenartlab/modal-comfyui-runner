@@ -153,14 +153,14 @@ def inject_args_into_workflow(workflow, args):
     # TODO: make this dynamic
     api_yaml_path = "/root/workspace/workflows/txt2img/api.yaml"
 
-    # Download images:
-    local_filepaths = []
-    for url in args["images"]:
-        local_filepath = download_file(url, f"/root/input/{_url_to_filename(url)}")
-        local_filepaths.append(local_filepath)
-
-    # TODO make this dynamic    
-    args["images"] = local_filepaths
+    if "images" in args:
+        # Download images:
+        local_filepaths = []
+        for url in args["images"]:
+            local_filepath = download_file(url, f"/root/input/{_url_to_filename(url)}")
+            local_filepaths.append(local_filepath)
+        # TODO make this dynamic    
+        #args["images"] = local_filepaths
 
     # Load the api.yaml configuration
     with open(api_yaml_path, 'r') as f:

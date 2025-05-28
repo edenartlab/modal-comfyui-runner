@@ -1,5 +1,5 @@
 # 1. Deploy ComfyUI behind a web endpoint:
-# WORKSPACE=slow_new modal deploy comfyapp.py
+# WORKSPACE=slow_new modal deploy modal_comfy.py
 
 import json
 import subprocess
@@ -252,9 +252,11 @@ class ComfyUI:
         # completed workflows write output images to this directory
         output_dir = f"{cfg.root_comfy_dir}/output"
 
-        # returns the output files as bytes
-        for f in Path(output_dir).iterdir():
-            return f.read_bytes()
+        # Grab the latest file in the output directory:
+        latest_file = max(Path(output_dir).iterdir(), key=lambda x: x.stat().st_mtime)
+
+        # returns the output file as bytes
+        return latest_file.read_bytes()
 
     @modal.fastapi_endpoint(method="POST")
     def api(self, data: Dict):
@@ -273,9 +275,9 @@ class ComfyUI:
         print(f"Running workflow: {workflow_name} with args: {data.get('args')}")
 
         # run inference on the currently running container
-        list_of_img_bytes = self.infer.local(new_workflow_file)
+        content_bytes = self.infer.local(new_workflow_file)
 
-        return Response(list_of_img_bytes, media_type="video/mp4")
+        return Response(content_bytes, media_type="image/png")
 
     def poll_server_health(self) -> Dict:
         import socket
