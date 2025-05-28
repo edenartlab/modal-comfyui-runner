@@ -73,7 +73,7 @@ def parse_args(arglist: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--workflow",
         type=str,
-        default="texture_flow",
+        default="txt2img",
         help="Name of the workflow to run.",
     )
     parser.add_argument(

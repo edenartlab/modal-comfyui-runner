@@ -1,0 +1,107 @@
+{
+  "10": {
+    "inputs": {
+      "samples": [
+        "333",
+        0
+      ],
+      "vae": [
+        "110",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "110": {
+    "inputs": {
+      "ckpt_name": "SD15/juggernaut_reborn.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Checkpoint"
+    }
+  },
+  "290": {
+    "inputs": {
+      "text": "the garden of Eden, sunset, waterfall, lush vegetation, flowers, tree of life, stunning panorama, sharp details, masterpiece, bright sunlight",
+      "clip": [
+        "110",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "291": {
+    "inputs": {
+      "text": "nude, naked, blurry, low quality, text, watermark, shutterstock, artefacts, ugly, NSFW, exposed breasts, boobs",
+      "clip": [
+        "110",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "321": {
+    "inputs": {
+      "width": 768,
+      "height": 768,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "333": {
+    "inputs": {
+      "seed": 785520035013310,
+      "steps": 25,
+      "cfg": 7,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1,
+      "model": [
+        "110",
+        0
+      ],
+      "positive": [
+        "290",
+        0
+      ],
+      "negative": [
+        "291",
+        0
+      ],
+      "latent_image": [
+        "321",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "339": {
+    "inputs": {
+      "filename_prefix": "xander_image",
+      "images": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

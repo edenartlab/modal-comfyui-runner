@@ -151,7 +151,7 @@ def inject_args_into_workflow(workflow, args):
     pprint(args)
 
     # TODO: make this dynamic
-    api_yaml_path = "/root/workspace/workflows/texture_flow/api.yaml"
+    api_yaml_path = "/root/workspace/workflows/txt2img/api.yaml"
 
     # Download images:
     local_filepaths = []
