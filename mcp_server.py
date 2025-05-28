@@ -25,7 +25,6 @@ DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 # Create MCP server
 mcp = FastMCP("ComfyUI Modal Server")
 
-
 def construct_modal_url(workflow: str) -> str:
     """Construct the Modal API URL for a given workflow."""
     dev_suffix = "-dev" if DEV_MODE else ""
@@ -109,7 +108,6 @@ def get_txt2img_info() -> str:
     
     Output: PNG image
     Base model: SD1.5
-    Supported resolutions: 16:9 (1024x576), 3:2 (864x576), 1:1 (640x640), 2:3 (576x864), 9:16 (576x1024)
     """
 
 
@@ -117,12 +115,11 @@ def get_txt2img_info() -> str:
 image = modal.Image.debian_slim(python_version="3.11").pip_install("mcp")
 
 # Create Modal app for deployment
-modal_app = modal.App("mcp-comfyui-server")
+app = modal.App("mcp-comfyui-server")
 
-
-@modal_app.function(
+@app.function(
     image=image,
-    keep_warm=1,
+    min_containers=1,
     timeout=600
 )
 @modal.web_server(8080)
@@ -141,5 +138,4 @@ if __name__ == "__main__":
         print(f"Modal workspace: {MODAL_WORKSPACE}")
         print(f"Workspace name: {WORKSPACE_NAME}")
         print(f"Dev mode: {DEV_MODE}")
-        print(f"Available tools: txt2img")
         mcp.run()
