@@ -1,11 +1,10 @@
 # Modal ComfyUI Runner
 
+⚠️ **Work in Progress** - This repository is under active development and not ready for production use.
+
 A serverless ComfyUI deployment system that runs workflows on [Modal](https://modal.com) and exposes them via MCP (Model Context Protocol) servers for easy integration with AI assistants.
 
-## Overview
-
-This project deploys ComfyUI workflows as scalable web APIs using Modal's serverless infrastructure. Features include:
-
+Includes:
 - **Serverless ComfyUI**: Deploy workflows with automatic scaling and GPU optimization
 - **Memory Snapshots**: Fast cold starts using Modal's memory snapshot feature
 - **Workspace Management**: Organize workflows, models, and custom nodes by workspace
