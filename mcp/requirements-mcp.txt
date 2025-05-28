@@ -1,5 +1,5 @@
-# MCP (Model Context Protocol) dependencies
-mcp[cli]>=1.0.0
+mcp>=1.0.0
+modal>=1.0.1
 
 # Optional: for testing and development
 pytest>=7.0.0
